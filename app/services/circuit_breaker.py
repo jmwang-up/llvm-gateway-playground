@@ -52,11 +52,13 @@ class RedisCircuitBreaker:
         failure_threshold: int = 5,
         open_seconds: int = 30,
         clock_ms: Callable[[], int] | None = None,
+        metrics: Any | None = None,
     ) -> None:
         self._redis = redis_client
         self._threshold = failure_threshold
         self._open_ms = open_seconds * 1000
         self._clock_ms = clock_ms or (lambda: time.time_ns() // 1_000_000)
+        self._metrics = metrics
         self._local: dict[str, _LocalState] = {}
         self._local_lock = asyncio.Lock()
 
@@ -87,11 +89,13 @@ class RedisCircuitBreaker:
             await self._redis.eval(_SUCCESS_SCRIPT, 2, state_key, probe_key)
         except RedisError:
             await self._local_success(provider)
+        if self._metrics is not None:
+            self._metrics.circuit_state.labels(provider).set(0)
 
     async def failure(self, provider: str) -> None:
         state_key, probe_key = self._keys(provider)
         try:
-            await self._redis.eval(
+            failures = await self._redis.eval(
                 _FAILURE_SCRIPT,
                 2,
                 state_key,
@@ -102,6 +106,9 @@ class RedisCircuitBreaker:
             )
         except RedisError:
             await self._local_failure(provider)
+            failures = self._local[provider].failures
+        if self._metrics is not None and failures >= self._threshold:
+            self._metrics.circuit_state.labels(provider).set(1)
 
     async def _local_allow(self, provider: str) -> bool:
         async with self._local_lock:
@@ -126,4 +133,3 @@ class RedisCircuitBreaker:
             state.probe_active = False
             if state.failures >= self._threshold:
                 state.opened_at = self._clock_ms()
-

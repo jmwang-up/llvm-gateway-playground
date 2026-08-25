@@ -1,3 +1,4 @@
+import json
 from functools import lru_cache
 from typing import ClassVar
 
@@ -31,6 +32,7 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     anthropic_base_url: str = "https://api.anthropic.com/v1"
     anthropic_default_model: str = "claude-sonnet-4-20250514"
+    model_equivalents_json: str = "{}"
 
     rate_limit_capacity: int = Field(default=60, gt=0)
     rate_limit_refill_per_second: float = Field(default=1, gt=0)
@@ -63,6 +65,21 @@ class Settings(BaseSettings):
                 raise ValueError("CLIENT_API_KEYS identities and keys must be unique")
             identities.add(identity)
             parsed[key] = identity
+        return parsed
+
+    @property
+    def model_equivalents(self) -> dict[str, list[str]]:
+        try:
+            parsed = json.loads(self.model_equivalents_json)
+        except json.JSONDecodeError as error:
+            raise ValueError("MODEL_EQUIVALENTS_JSON must be valid JSON") from error
+        if not isinstance(parsed, dict) or not all(
+            isinstance(key, str)
+            and isinstance(value, list)
+            and all(isinstance(item, str) for item in value)
+            for key, value in parsed.items()
+        ):
+            raise ValueError("MODEL_EQUIVALENTS_JSON must map model names to lists")
         return parsed
 
 

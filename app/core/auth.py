@@ -33,4 +33,6 @@ class APIKeyAuthenticator:
 
 async def get_client_identity(request: Request) -> ClientIdentity:
     raw_key = request.headers.get("X-API-Key")
-    return request.app.state.authenticator.authenticate(raw_key)
+    identity = request.app.state.authenticator.authenticate(raw_key)
+    request.state.client_identity = identity.name
+    return identity

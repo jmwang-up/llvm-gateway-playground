@@ -1,4 +1,35 @@
 services:
+  gateway:
+    build:
+      context: .
+    ports:
+      - "8000:8000"
+    environment:
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      CLIENT_API_KEYS: ${CLIENT_API_KEYS:-demo:change-me}
+      REDIS_URL: redis://redis:6379/0
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
+      DEEPSEEK_DEFAULT_MODEL: ${DEEPSEEK_DEFAULT_MODEL:-deepseek-chat}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      OPENAI_DEFAULT_MODEL: ${OPENAI_DEFAULT_MODEL:-gpt-5-mini}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL:-https://api.anthropic.com/v1}
+      ANTHROPIC_DEFAULT_MODEL: ${ANTHROPIC_DEFAULT_MODEL:-claude-sonnet-4-20250514}
+      MODEL_EQUIVALENTS_JSON: ${MODEL_EQUIVALENTS_JSON:-{}}
+      RATE_LIMIT_CAPACITY: ${RATE_LIMIT_CAPACITY:-60}
+      RATE_LIMIT_REFILL_PER_SECOND: ${RATE_LIMIT_REFILL_PER_SECOND:-1}
+      MAX_CONCURRENT_REQUESTS: ${MAX_CONCURRENT_REQUESTS:-5}
+      CACHE_TTL_SECONDS: ${CACHE_TTL_SECONDS:-300}
+      CIRCUIT_FAILURE_THRESHOLD: ${CIRCUIT_FAILURE_THRESHOLD:-5}
+      CIRCUIT_OPEN_SECONDS: ${CIRCUIT_OPEN_SECONDS:-30}
+      PROVIDER_TIMEOUT_SECONDS: ${PROVIDER_TIMEOUT_SECONDS:-30}
+      TOTAL_TIMEOUT_SECONDS: ${TOTAL_TIMEOUT_SECONDS:-75}
+    depends_on:
+      redis:
+        condition: service_healthy
+
   redis:
     image: redis:7-alpine
     ports:
@@ -10,6 +41,14 @@ services:
       interval: 2s
       timeout: 1s
       retries: 20
+
+  mock-provider:
+    profiles: ["smoke"]
+    build:
+      context: .
+    command: ["uvicorn", "mock_provider:app", "--app-dir", "/smoke", "--host", "0.0.0.0", "--port", "9000"]
+    volumes:
+      - ./tests/smoke:/smoke:ro
 
 volumes:
   redis-data:

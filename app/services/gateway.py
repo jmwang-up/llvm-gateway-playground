@@ -19,12 +19,14 @@ class GatewayService:
         cache: Any,
         router: Any,
         fallback: Any,
+        metrics: Any | None = None,
     ) -> None:
         self._settings = settings
         self._rate_limiter = rate_limiter
         self._cache = cache
         self._router = router
         self._fallback = fallback
+        self._metrics = metrics
 
     async def complete(
         self,
@@ -34,14 +36,20 @@ class GatewayService:
     ) -> ChatResponse:
         decision = await self._rate_limiter.acquire_rate(client.name)
         if not decision.allowed:
+            if self._metrics is not None:
+                self._metrics.rate_limit_rejections.inc()
             raise RedisRateLimiter.rate_limit_error(decision)
         lease = await self._rate_limiter.acquire_concurrency(client.name, request_id)
         try:
             cached = await self._cache.get(client.name, request)
             if cached is not None:
+                if self._metrics is not None:
+                    self._metrics.cache_hits.inc()
                 return cached.model_copy(update={"cached": True})
             async with self._cache.single_flight(client.name, request) as flight:
                 if not flight.owner and flight.cached_response is not None:
+                    if self._metrics is not None:
+                        self._metrics.cache_hits.inc()
                     return flight.cached_response.model_copy(update={"cached": True})
                 try:
                     result, fallback_count = await asyncio.wait_for(
@@ -80,6 +88,8 @@ class GatewayService:
     ) -> AsyncIterator[StreamEvent]:
         decision = await self._rate_limiter.acquire_rate(client.name)
         if not decision.allowed:
+            if self._metrics is not None:
+                self._metrics.rate_limit_rejections.inc()
             raise RedisRateLimiter.rate_limit_error(decision)
         lease = await self._rate_limiter.acquire_concurrency(client.name, request_id)
         try:

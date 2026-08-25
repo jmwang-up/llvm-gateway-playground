@@ -35,6 +35,7 @@ async def chat(
 ):
     request_id = _request_id(request.headers.get("X-Request-ID"))
     request.state.request_id = request_id
+    request.state.requested_model = payload.model
     if payload.stream:
         stream = await request.app.state.gateway.stream(client, payload, request_id)
         return StreamingResponse(
@@ -47,6 +48,10 @@ async def chat(
             },
         )
     response = await request.app.state.gateway.complete(client, payload, request_id)
+    request.state.provider = response.provider
+    request.state.actual_model = response.model
+    request.state.cache_status = "HIT" if response.cached else "MISS"
+    request.state.fallback_count = response.fallback_count
     return JSONResponse(
         content=response.model_dump(mode="json"),
         headers={
