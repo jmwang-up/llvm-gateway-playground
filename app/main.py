@@ -3,6 +3,7 @@ from uuid import uuid4
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
+from app.api.chat import router as chat_router
 from app.core.auth import APIKeyAuthenticator
 from app.core.config import Settings, get_settings
 from app.core.errors import GatewayError
@@ -18,6 +19,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     application.state.settings = resolved_settings
     application.state.authenticator = APIKeyAuthenticator(resolved_settings.client_keys)
+    application.include_router(chat_router)
 
     @application.exception_handler(GatewayError)
     async def handle_gateway_error(request: Request, error: GatewayError) -> JSONResponse:
@@ -32,7 +34,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     "request_id": request_id,
                 }
             },
-            headers={"X-Request-ID": request_id},
+            headers={"X-Request-ID": request_id, **error.headers},
         )
 
     return application

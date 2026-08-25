@@ -154,6 +154,7 @@ class RedisRateLimiter:
             message="Request rate limit exceeded",
             status_code=429,
             retryable=True,
+            headers={"Retry-After": str(decision.retry_after)},
         )
 
     @staticmethod
