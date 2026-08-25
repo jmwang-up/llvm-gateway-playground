@@ -1,10 +1,12 @@
 import asyncio
+from collections.abc import AsyncIterator
 from typing import Any
 
 from app.core.auth import ClientIdentity
 from app.core.config import Settings
 from app.core.errors import GatewayError
-from app.schemas.chat import ChatMessage, ChatRequest, ChatResponse
+from app.providers.base import ProviderError
+from app.schemas.chat import ChatMessage, ChatRequest, ChatResponse, StreamEvent, Usage
 from app.services.rate_limiter import RedisRateLimiter
 
 
@@ -70,3 +72,70 @@ class GatewayService:
         finally:
             await self._rate_limiter.release_concurrency(lease)
 
+    async def stream(
+        self,
+        client: ClientIdentity,
+        request: ChatRequest,
+        request_id: str,
+    ) -> AsyncIterator[StreamEvent]:
+        decision = await self._rate_limiter.acquire_rate(client.name)
+        if not decision.allowed:
+            raise RedisRateLimiter.rate_limit_error(decision)
+        lease = await self._rate_limiter.acquire_concurrency(client.name, request_id)
+        try:
+            candidate, chunks, fallback_count = (
+                await self._fallback.stream_until_first_chunk(
+                    request,
+                    self._router.candidates(request.model),
+                )
+            )
+        except BaseException:
+            await self._rate_limiter.release_concurrency(lease)
+            raise
+
+        async def generate() -> AsyncIterator[StreamEvent]:
+            usage = Usage()
+            try:
+                yield StreamEvent(
+                    event="meta",
+                    data={
+                        "id": f"chat_{request_id}",
+                        "model": f"{candidate.provider}/{candidate.model}",
+                        "provider": candidate.provider,
+                        "fallback_count": fallback_count,
+                    },
+                )
+                try:
+                    async for chunk in chunks:
+                        if chunk.usage is not None:
+                            usage = chunk.usage
+                        if chunk.content:
+                            yield StreamEvent(
+                                event="delta",
+                                data={"content": chunk.content},
+                            )
+                except ProviderError:
+                    yield StreamEvent(
+                        event="error",
+                        data={
+                            "code": "upstream_stream_error",
+                            "message": "The upstream stream ended unexpectedly",
+                            "retryable": True,
+                            "request_id": request_id,
+                        },
+                    )
+                    return
+                yield StreamEvent(
+                    event="done",
+                    data={"usage": usage.model_dump(mode="json")},
+                )
+            finally:
+                close = getattr(chunks, "aclose", None)
+                if close is not None:
+                    await close()
+                try:
+                    await self._rate_limiter.release_concurrency(lease)
+                except GatewayError:
+                    pass
+
+        return generate()

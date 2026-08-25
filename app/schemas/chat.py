@@ -40,3 +40,7 @@ class ChatResponse(BaseModel):
     cached: bool = False
     fallback_count: int = Field(default=0, ge=0)
 
+
+class StreamEvent(BaseModel):
+    event: Literal["meta", "delta", "done", "error"]
+    data: dict
