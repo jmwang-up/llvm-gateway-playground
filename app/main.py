@@ -3,6 +3,7 @@ from uuid import uuid4
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
+from app.core.auth import APIKeyAuthenticator
 from app.core.config import Settings, get_settings
 from app.core.errors import GatewayError
 
@@ -16,6 +17,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         redoc_url=None,
     )
     application.state.settings = resolved_settings
+    application.state.authenticator = APIKeyAuthenticator(resolved_settings.client_keys)
 
     @application.exception_handler(GatewayError)
     async def handle_gateway_error(request: Request, error: GatewayError) -> JSONResponse:
